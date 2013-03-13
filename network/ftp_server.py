@@ -43,11 +43,11 @@ from pyftpdlib.authorizers import DummyAuthorizer
 
 def main():
     authorizer = DummyAuthorizer()
-    authorizer.add_user('user', '12345', '.')
+#    authorizer.add_user('user', '12345', '.')
     authorizer.add_anonymous(os.getcwd(),perm='elradfmw')
     handler = FTPHandler
     handler.authorizer = authorizer
-    server = ThreadedFTPServer(('127.0.0.1', 2121), handler)
+    server = ThreadedFTPServer(('0.0.0.0', 2121), handler)
     server.serve_forever()
 
 if __name__ == "__main__":
