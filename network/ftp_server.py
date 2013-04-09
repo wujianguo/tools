@@ -47,7 +47,7 @@ def main():
     authorizer.add_anonymous(os.getcwd(),perm='elradfmw')
     handler = FTPHandler
     handler.authorizer = authorizer
-    server = ThreadedFTPServer(('0.0.0.0', 2121), handler)
+    server = ThreadedFTPServer(('0.0.0.0', 21), handler)
     server.serve_forever()
 
 if __name__ == "__main__":
