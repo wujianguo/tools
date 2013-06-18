@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
@@ -8,17 +11,53 @@ import BaseHTTPServer
 import urllib
 import cgi
 import shutil
+import struct
+import string
+import hashlib
 import mimetypes
 try:
     from cStringIO import StringIO
 except ImportError:
     from StringIO import StringIO
+HOST = '127.0.0.1'
+PORT = 9854
+BUF_SIZE = 256*1024
+KEY = 'okdoit'
+def get_table(key):
+    m = hashlib.md5()
+    m.update(key)
+    s = m.digest()
+    (a, b) = struct.unpack('<QQ', s)
+    table = [c for c in string.maketrans('', '')]
+    for i in xrange(1, 1024):
+        table.sort(lambda x, y: int(a % (ord(x) + i) - a % (ord(y) + i)))
+    return table
+ENCRYPT_TABLE = ''.join(get_table(KEY))
+DECRYPT_TABLE = string.maketrans(ENCRYPT_TABLE, string.maketrans('', ''))
 
+def encrypt_file(file_path, encrypt_path):
+    rf, wf = open(file_path, 'rb'), open(encrypt_path, 'wb')
+    while True:
+        data = rf.read(BUF_SIZE)
+        if not data:
+            break
+        wf.write(data.translate(ENCRYPT_TABLE))
+    wf.close()
+    rf.close()
+
+def decrypt_file(file_path, decrypt_path):
+    rf, wf = open(file_path, 'rb'), open(decrypt_path, 'wb')
+    while True:
+        data = rf.read(BUF_SIZE)
+        if not data:
+            break
+        wf.write(data.translate(DECRYPT_TABLE))
+    wf.close()
+    rf.close()
 
 class RangeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
         f, start_range, end_range = self.send_head()
-#        print "Got values of ", start_range, " and ", end_range, "...\n"
         if f:
             f.seek(start_range, 0)
             chunk = 0x1000
@@ -27,7 +66,10 @@ class RangeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 if start_range + chunk > end_range:
                     chunk = end_range - start_range
                 try:
-                    self.wfile.write(f.read(chunk))
+                    if self.encplay(self.path):
+                        self.wfile.write(self.decrypt(f.read(chunk)))
+                    else:
+                        self.wfile.write(f.read(chunk))
                 except:
                     break
                 total += chunk
@@ -38,6 +80,12 @@ class RangeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         f, start_range, end_range = self.send_head()
         if f:
             f.close()
+
+    def encrypt(self, data):
+        return data.translate(ENCRYPT_TABLE)
+
+    def decrypt(self, data):
+        return data.translate(DECRYPT_TABLE)
 
     def send_head(self):
         path = self.translate_path(self.path)
@@ -88,7 +136,6 @@ class RangeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.send_header("Content-Length", end_range - start_range)
         self.send_header("Last-Modified", self.date_time_string(fs.st_mtime))
         self.end_headers()
-#        print "Sending Bytes ",start_range, " to ", end_range, "...\n"
         return (f, start_range, end_range)
 
     def list_directory(self, path):
@@ -127,6 +174,9 @@ class RangeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def translate_path(self, path):
         # abandon query parameters
+        encpath = self.encplay(path)
+        if encpath:
+            return encpath
         path = path.split('?',1)[0]
         path = path.split('#',1)[0]
         path = posixpath.normpath(urllib.unquote(path))
@@ -140,6 +190,15 @@ class RangeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             path = os.path.join(path, word)
         return path
 
+    def encplay(self, path):
+        s = path.split('?',1)
+        if len(s) == 2:
+            parameters = s[1]
+            paras = dict([c.split('=') for c in parameters.split('&')])
+            encpath = paras.get('encplay',None)
+            if encpath:
+                return encpath
+        return None
     def copyfile(self, source, outputfile):
         shutil.copyfileobj(source, outputfile)
 
@@ -168,17 +227,17 @@ class RangeHTTPRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 class ThreadingHTTPServer(SocketServer.ThreadingMixIn,BaseHTTPServer.HTTPServer):
     pass
 
-def test():
-    os.system('ffplay.exe http://127.0.0.1:9854/right.flv')
 def serve_on(handler, host, port = 80):
     serveraddr = (host,port)
     server = ThreadingHTTPServer(serveraddr, handler)
     server.serve_forever()
-HOST = '127.0.0.1'
-PORT = 9854
+def play(path):
+    url = 'http://localhost:'+str(PORT)+'/?encplay='+path
+#    url = urllib.quote(url)
+    os.system('ffplay '+url)
 def main():
     import threading
-    t = threading.Timer(3.0, test)
+    t = threading.Timer(1.0, play, ['test.enc'])
     t.start()
     serve_on(RangeHTTPRequestHandler, HOST, PORT)
 if __name__=='__main__':
