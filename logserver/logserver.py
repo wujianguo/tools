@@ -84,6 +84,7 @@ def main():
             cfg = json.load(f)
     except:
         cfg = {}
+    print(cfg)
     logs = newLogger(cfg)
     stdlog = logs.next()
     ThreadedLogRequestHandler.stdlog = stdlog
