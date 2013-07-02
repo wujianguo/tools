@@ -1,130 +1,96 @@
-#! /usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
 import os,datetime
 import logging,logging.handlers
-import threading
+# import threading
 from threading import Lock
 import socket
 import SocketServer
-import ConfigParser
+import json
 import sys
-import shutil
-__config__ = 'logserver.ini'
-ROOT_DIR = sys.path[0]
-if not os.path.isdir(ROOT_DIR):
-    ROOT_DIR = os.path.split(ROOT_DIR)[0]
-#ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
-class Common(object):
-    """Global Config Object"""
 
-    def __init__(self):
-        """load config from logserver.ini"""
-#        ConfigParser.RawConfigParser.OPTCRE = re.compile(r'(?P<option>[^=\s][^=]*)\s*(?P<vi>[=])\s*(?P<value>.*)$')
-        self.CONFIG = ConfigParser.ConfigParser()
-        self.CONFIG_FILENAME = os.path.join(ROOT_DIR,__config__)
-        self.CONFIG.read(self.CONFIG_FILENAME)
-
-        self.LISTEN_IP = self.CONFIG.get('server', 'ip') if self.CONFIG.has_option('server', 'ip') else '0.0.0.0'
-        self.LISTEN_PORT = self.CONFIG.getint('server', 'port') if self.CONFIG.has_option('server', 'port') else 6210
-        
-        self.LOG_DIR = self.CONFIG.get('log','dir') if self.CONFIG.has_option('log', 'dir') else 'log'
-        if self.LOG_DIR.find(':') == -1 and not self.LOG_DIR.startswith('/'):
-            self.LOG_DIR = os.path.join(ROOT_DIR,self.LOG_DIR)
-        
-        self.LOG_NAME = self.CONFIG.get('log','name') if self.CONFIG.has_option('log', 'name') else 'test.log'
-        self.MAXFILESIZE = self.CONFIG.get('log','maxfilesize') if self.CONFIG.has_option('log', 'maxfilesize') else '20*1024*1024'
-        self.MAXFILESIZE = eval(self.MAXFILESIZE)
-        self.MAXBACKUP = self.CONFIG.getint('log','maxbackup') if self.CONFIG.has_option('log', 'maxbackup') else 20
-        self.SEPARATOR = self.CONFIG.get('log','separator') if self.CONFIG.has_option('log', 'separator') else '\\n'
-        self.SEPARATOR = self.SEPARATOR.strip().replace('\'','').replace("\"",'')
-        self.FORMAT    = self.CONFIG.get('log','format') if self.CONFIG.has_option('log','format') else '%(message)s'
-        self.BUFSIZE   = self.CONFIG.get('log','bufsize') if self.CONFIG.has_option('log','bufsize') else '1024*4'
-        self.BUFSIZE   = eval(self.BUFSIZE)        
-        self.SEPARATOR = eval('\''+self.SEPARATOR+'\'')
-        self.DELETELOG = self.CONFIG.getint('log','cleanlog') if self.CONFIG.has_option('log','cleanlog') else 0
-        if self.DELETELOG and os.path.exists(self.LOG_DIR):
-            try:
-                shutil.rmtree(self.LOG_DIR)
-            except:
-                print('remove dir error')
-#        self.LOG_DIR = os.path.join(self.LOG_DIR,datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
-        print(self.LOG_DIR)
-        self.STDSHOW = self.CONFIG.getint('std','show') if self.CONFIG.has_option('std', 'show') else 0
-
-common = Common()
-if not os.path.exists(common.LOG_DIR):
-    os.makedirs(common.LOG_DIR)
-LOCK = Lock()
-console = logging.StreamHandler()
-stdlog=logging.getLogger("stdlog")
-stdlog.addHandler(console)
-stdlog.setLevel(logging.DEBUG)
-g_remote_ip = ''
-def newLogger():
-#    logformat='[%(levelname)s %(asctime)s %(filename)s \
-#%(module)s %(funcName)s line:%(lineno)d] %(message)s'
-    logformat = common.FORMAT
-    global g_remote_ip
-    i = 1
+def newLogger(cfg):
+    console_std = logging.StreamHandler()
+    stdlog=logging.getLogger("stdlog")
+    stdlog.addHandler(console_std)
+    stdlog.setLevel(logging.DEBUG)
+    client_ip = yield stdlog
+    logformat = cfg.get('logformat', '%(message)s')
     while True:
-        thisdir = os.path.join(common.LOG_DIR,datetime.datetime.now().strftime("%Y%m%d%H%M%S_%f_")+g_remote_ip)
+        thisdir = os.path.join(cfg.get('logdir','log'), datetime.datetime.now().strftime("%Y%m%d%H%M%S_%f_")+client_ip)
         if not os.path.exists(thisdir):
-            os.mkdir(thisdir)
-        log_file = os.path.join(thisdir,common.LOG_NAME)
-        newlog=logging.getLogger(str(i))
-        if common.STDSHOW:
-            console = logging.StreamHandler()
-            newlog.addHandler(console)
+            os.makedirs(thisdir)
+        log_file = os.path.join(thisdir, cfg.get('logname', 'thunder.log'))
+        newlog = logging.getLogger(thisdir)
+        if cfg.get('stdshow', False):
+            # console = logging.StreamHandler()
+            newlog.addHandler(console_std)
             newlog.setLevel(logging.DEBUG)
-        console = logging.handlers.RotatingFileHandler(filename=log_file,
-                                                        mode='a',
-                                                        maxBytes=common.MAXFILESIZE,
-                                                        backupCount=common.MAXBACKUP)
+        console = logging.handlers.RotatingFileHandler(
+            filename=log_file,
+            mode='a',
+            maxBytes=cfg.get('maxfilesize', 20*1024*1024),
+            backupCount=cfg.get('maxbackup', 20)
+            )
         console.setFormatter(logging.Formatter(logformat))
         newlog.addHandler(console)
         newlog.setLevel(logging.DEBUG)
         stdlog.debug(thisdir)
-        i = i +1
-        ip = yield newlog
+        client_ip = yield newlog
 
-logs = newLogger()
-class ThreadedTCPRequestHandler(SocketServer.BaseRequestHandler):
+class ThreadedLogRequestHandler(SocketServer.BaseRequestHandler):
+    cfg = {}
+    log_lock = Lock()
+    logs = None
+    stdlog = logging
     def setup(self):
-        global g_remote_ip
-        LOCK.acquire(True)
-        stdlog.debug('%s:%d accept'%self.client_address)
-        g_remote_ip = self.client_address[0]
-        self.log = logs.next()
-        LOCK.release()
+        ThreadedLogRequestHandler.log_lock.acquire(True)
+        ThreadedLogRequestHandler.stdlog.debug('%s:%d accept'%self.client_address)
+        self.log = ThreadedLogRequestHandler.logs.send(self.client_address[0])
+        ThreadedLogRequestHandler.log_lock.release()
         self.data = ''
     def handle(self):
         while True:
-            d = self.request.recv(common.BUFSIZE)
+            d = self.request.recv(ThreadedLogRequestHandler.cfg.get('bufsize', 256*1024))
             if not d:
                 break
             self.data = self.data + d
-            i = self.data.find(common.SEPARATOR)
+            i = self.data.find(ThreadedLogRequestHandler.cfg.get('separator', '\n'))
             while i != -1:
                 self.log.debug(self.data[:i])
-                self.data = self.data[i+len(common.SEPARATOR):]
-                i = self.data.find(common.SEPARATOR)
+                self.data = self.data[i+len(ThreadedLogRequestHandler.cfg.get('separator', '\n')):]
+                i = self.data.find(ThreadedLogRequestHandler.cfg.get('separator', '\n'))
             if len(self.data)>128*1024:
                 self.log.debug(self.data)
                 self.data = ''
     def finish(self):
-        stdlog.debug('%s:%d closed'%self.client_address)
+        ThreadedLogRequestHandler.stdlog.debug('%s:%d closed'%self.client_address)
         self.log.debug(self.data)
         self.data = ''
         for h in self.log.handlers:
             self.log.removeHandler(h)
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     pass
+
+def server(host='0.0.0.0', port=6211):
+    return ThreadedTCPServer((host, port), ThreadedLogRequestHandler)
+
 def main():
-    server = ThreadedTCPServer((common.LISTEN_IP, common.LISTEN_PORT), ThreadedTCPRequestHandler)
-    server_thread = threading.Thread(target=server.serve_forever)
-#    server_thread.daemon = True
-    server_thread.start()
-    stdlog.debug(common.LISTEN_IP + ' ' + str(common.LISTEN_PORT) + '  serving...')
+    root_dir = sys.path[0]
+    if not os.path.isdir(root_dir):
+        root_dir = os.path.split(root_dir)[0]
+    try:
+        with open(os.path.join(root_dir, 'logserver.json')) as f:
+            cfg = json.load(f)
+    except:
+        cfg = {}
+    logs = newLogger(cfg)
+    stdlog = logs.next()
+    ThreadedLogRequestHandler.stdlog = stdlog
+    ThreadedLogRequestHandler.cfg = cfg
+    ThreadedLogRequestHandler.logs = logs
+
+    stdlog.debug(cfg.get('ip', '0.0.0.0') + ':' + str(cfg.get('port', 6211)) + '  serving...')
+    server(cfg.get('ip', '0.0.0.0'), cfg.get('port', 6211)).serve_forever()
 if __name__ == "__main__":
     main()
