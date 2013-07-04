@@ -4,7 +4,7 @@ import os,datetime
 import logging,logging.handlers
 # import threading
 from threading import Lock
-import socket
+#import socket
 import SocketServer
 import json
 import sys
