@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
+from gevent import monkey
+monkey.patch_thread()
 import Queue
 import threading
 class worker(threading.Thread):
@@ -12,7 +13,7 @@ class worker(threading.Thread):
 	def run(self):
 		while not self.stop_event.isSet():
 			try:
-				work = self.queue.get(True, 1)
+				work = self.queue.get(True, 0.01)
 				fun = work[0]
 				args = work[1]
 				kwargs = work[2]
@@ -48,20 +49,7 @@ class workers():
 	def terminate(self):
 		for th in self.threads:
 			th.terminate()
-import logging
-logging.basicConfig(level=logging.DEBUG)
-def test_fun(a1, a2, d1='d11', d2=0):
-	# logging.debug(a1)
-	# logging.debug(a2)
-	# logging.debug(d1)
-	# logging.debug(d2)
-	logging.debug('test_fun,%d'%d2)
-	import time
-	time.sleep(1)
 def test():
-	work = workers(4)
-	for i in range(10):
-		work.apply_async(test_fun, 's', 'x', d2=i)
-	work.close()
+	pass
 if __name__=="__main__":
 	test()
