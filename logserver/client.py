@@ -33,12 +33,12 @@ import os
 
 def main():
 #    test_dir = 'D:/xltest/video_accelerate/log'
-    test_dir = 'E:/temp/TSLOGNewStream'
+    test_dir = 'E:/temp/t'
     threads=[]
     for f in os.listdir(test_dir):
         print(f)
-#        if f.startswith('thunder.log'):
-        if f.endswith('.log'):
+        if f.startswith('thunder.log'):
+#        if f.endswith('.log'):
             client=LogClient()
             client.setfile(os.path.join(test_dir,f))
             client.start()

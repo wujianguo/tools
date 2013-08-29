@@ -14,8 +14,8 @@ def print_diff_files(dcmp):
 
 def main():
     arg_len = len(sys.argv)
-    dir1 = 'E:/temp/td/t1'
-    dir2 = 'E:/temp/td/t2'
+    dir1 = 'E:/android/new_task/jni/common'
+    dir2 = 'E:/android/new_task_branch/jni/common'
     if arg_len == 3:
         dir1, dir2 = sys.argv[1:]
         # print(dir1,dir2)

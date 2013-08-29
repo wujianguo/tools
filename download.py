@@ -15,5 +15,7 @@ def download(downurl):
 			break
 		f.write(s)
 	f.close()
+def download2(url):
+	pass
 if __name__=="__main__":
-    download('http://c758482.r82.cf2.rackcdn.com/Sublime%20Text%202.0.1.tar.bz2')
+    download2('http://c758482.r82.cf2.rackcdn.com/Sublime%20Text%202.0.1.tar.bz2')
