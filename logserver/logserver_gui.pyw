@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+from PyQt4 import QtCore, QtGui
+
 import os
 import datetime
 import logging
 import logging.handlers
-# import threading
+import threading
 from threading import Lock
 # import socket
 import SocketServer
@@ -40,7 +43,7 @@ def newLogger(cfg):
         console.setFormatter(logging.Formatter(logformat))
         newlog.addHandler(console)
         newlog.setLevel(logging.DEBUG)
-        stdlog.debug(thisdir)
+        # stdlog.debug(thisdir)
         client_ip = yield newlog,thisdir
 
 
@@ -49,7 +52,9 @@ class ThreadedLogRequestHandler(SocketServer.BaseRequestHandler):
     CFG = {}
     def setup(self):
         ThreadedLogRequestHandler.log_lock.acquire(True)
-        ThreadedLogRequestHandler.CFG['stdlog'].debug('%s:%d accept' % self.client_address)
+        # ThreadedLogRequestHandler.CFG['stdlog'].debug('%s:%d accept' % self.client_address)
+        if ThreadedLogRequestHandler.CFG.get('notify', False):
+            ThreadedLogRequestHandler.CFG['notify']('%s:%d accept' % self.client_address)
         self.log,path = ThreadedLogRequestHandler.CFG['logs'].send(self.client_address[0])
         ThreadedLogRequestHandler.log_lock.release()
         self.data = ''
@@ -84,7 +89,10 @@ class ThreadedLogRequestHandler(SocketServer.BaseRequestHandler):
                 self.data = ''
 
     def finish(self):
-        ThreadedLogRequestHandler.CFG['stdlog'].debug('%s:%d closed' % self.client_address)
+        # ThreadedLogRequestHandler.CFG['stdlog'].debug('%s:%d close' % self.client_address)
+        if ThreadedLogRequestHandler.CFG.get('notify', False):
+            ThreadedLogRequestHandler.CFG['notify']('%s:%d close' % self.client_address)
+    
         self.analysis(self.data)
         if self._analysis_class:
             try:
@@ -109,25 +117,81 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     pass
 
 
-def server(host='0.0.0.0', port=6211):
+def log_server(host='0.0.0.0', port=6211):
     return ThreadedTCPServer((host, port), ThreadedLogRequestHandler)
 
-def main():
+def load_cfg():
+    cfg = {}
     root_dir = sys.path[0]
     if not os.path.isdir(root_dir):
         root_dir = os.path.split(root_dir)[0]
+
     os.chdir(root_dir)
     try:
         with open(os.path.join(root_dir, 'logserver.json')) as f:
-            CFG = json.load(f)
+            cfg = json.load(f)
     except:
-        CFG = {}
-    print(CFG)
-    CFG['logs'] = newLogger(CFG)
-    CFG['stdlog'] = CFG['logs'].next()
+        cfg = {}
+    print(cfg)
+    cfg['logs'] = newLogger(cfg)
+    cfg['stdlog'] = cfg['logs'].next()
+    return cfg;
+
+class Window(QtGui.QMainWindow):
+    def __init__(self):
+        super(Window, self).__init__()
+        self.setWindowTitle(u"logserver")
+        self.setGeometry(300,300,400,400)
+        icon = QtGui.QIcon('leave.ico')
+        self.setWindowIcon(icon)
+        self.isTopLevel()
+        self.trayIcon = QtGui.QSystemTrayIcon(self)
+        self.trayIcon.setIcon(icon)
+        self.trayIcon.show()
+        # self.trayIcon.activated.connect(self.trayClick) #点击托盘 
+        self.trayIcon.setToolTip(u"logserver") #托盘信息
+        self.Menu() #右键菜单
+    
+    def Menu(self):
+        self.quitAction = QtGui.QAction(u"quit", self,triggered=QtGui.qApp.quit)
+        self.trayIconMenu = QtGui.QMenu(self)
+        self.trayIconMenu.addAction(self.quitAction)
+        self.trayIcon.setContextMenu(self.trayIconMenu) #右击托盘 
+
+    def closeEvent(self, event):
+        if self.trayIcon.isVisible():
+            self.hide()
+#              self.trayIcon.setVisible(False)
+            event.ignore()
+
+    # def trayClick(self,reason):
+    #     if reason==QtGui.QSystemTrayIcon.DoubleClick: #双击
+    #         self.showNormal()
+    #     elif reason==QtGui.QSystemTrayIcon.MiddleClick: #中击
+    #         self.showMessage()
+    #     else:
+    #         pass
+    def showMessage(self, msg):
+        icon=QtGui.QSystemTrayIcon.Information
+        self.trayIcon.showMessage("logserver", msg, icon)
+
+def main():
+    CFG = load_cfg()
+    app = QtGui.QApplication(sys.argv)
+    frm = Window()
+    CFG['notify'] = frm.showMessage
+
     ThreadedLogRequestHandler.CFG = CFG
 
-    CFG['stdlog'].debug(CFG.get('ip', '0.0.0.0') + ':' + str(CFG.get('port', 6211)) + '  serving...')
-    server(CFG.get('ip', '0.0.0.0'), CFG.get('port', 6211)).serve_forever()
-if __name__ == "__main__":
+    # CFG['stdlog'].debug(CFG.get('ip', '0.0.0.0') + ':' + str(CFG.get('port', 6211)) + '  serving...')
+    server = log_server(CFG.get('ip', '0.0.0.0'), CFG.get('port', 6211))
+
+    server_thread = threading.Thread(target=server.serve_forever)
+    # Exit the server thread when the main thread terminates
+    server_thread.daemon = True
+    server_thread.start()
+    # frm.show()
+    sys.exit(app.exec_())
+
+if __name__ == '__main__':
     main()
