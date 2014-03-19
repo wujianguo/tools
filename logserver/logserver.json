@@ -1,6 +1,6 @@
 {
 	"port": 6211,
-    "logdir": "D:/log",
+    "logdir": "D:/log/server",
 	"logname": "thunder.log",
 	"maxfilesize": 20971520,
 	"maxbackup": 25
